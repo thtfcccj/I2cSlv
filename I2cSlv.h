@@ -45,7 +45,8 @@ struct _I2cSlv{
   void *pI2cHw;                            //挂接的I2c硬件设备指针
   struct _I2cSlvCmd  *pCmd;               //正在通读的I2c从机设备或命令
   unsigned char Id;                      //此设备ID号
-  volatile enum _eI2cSlvState eState;  //状态机,外部只读
+  unsigned char SlvAdr;                  //缓冲的从机地址
+  volatile enum _eI2cSlvState eState;   //状态机,外部只读
   unsigned char Index;                   //用于标识正在处理那一位
 };
 
@@ -55,7 +56,7 @@ struct _I2cSlv{
 
 //------------------------------I2c设备初始化函数----------------------
 //此函数将始化设备结构，并将挂接的I2c硬件初始化
-//注：此函数不负责配置IO端口以及其中断入口
+//注：此函数不负责配置IO端口以及其中断入口,时钟，模块开启等
 void I2cSlv_Init(struct _I2cSlv *pI2cSlv,  //未初始化的设备指针
                  void *pI2cHw,              //挂接的I2c硬件
                  unsigned char Id,         //此设备ID号，可用于快速处理
@@ -64,7 +65,7 @@ void I2cSlv_Init(struct _I2cSlv *pI2cSlv,  //未初始化的设备指针
 
 //-----------------------------I2c从机启动函数-------------------------
 //置为从机准备接收数据状态
-int I2cSlv_ReStart(struct _I2cSlv *pI2cSlv); //设备指针
+signed char I2cSlv_ReStart(struct _I2cSlv *pI2cSlv); //设备指针
 
 //-----------------------------I2c强制复位函数-------------------------
 //停止并强制I2c复位

@@ -1,17 +1,16 @@
 /*******************************************************************************
 
-               I2C从机通用驱动程序-在LPC上的实现
-在LPC2103上运行正常，但Review后未测试与调试
+               I2C从机通用驱动程序-在HC32上的实现
+经检查，此I2C(已使用到)的STATE码，与LPC32相同,模块硬件结构与基本相同
 ********************************************************************************/
 
 #include "I2cSlv.h"
-//#include "LPC2103.h"
-//#include "LPC2103_bit.h"
-#include "string.h"
+#include "HC32.h"
+#include <string.h>
 
 //------------------------------I2c设备初始化函数----------------------
 //此函数将始化设备结构，并将挂接的I2c硬件初始化
-//注：此函数不负责配置IO端口以及其中断入口
+//注：此函数不负责配置IO端口以及其中断入口,时钟，模块开启等
 void I2cSlv_Init(struct _I2cSlv *pI2cSlv,  //未初始化的设备指针
                  void *pHw,                 //挂接的I2c硬件
                  unsigned char Id,         //此设备ID号，可用于快速处理
@@ -22,17 +21,21 @@ void I2cSlv_Init(struct _I2cSlv *pI2cSlv,  //未初始化的设备指针
   memset(pI2cSlv,0,sizeof(struct _I2cSlv));
   pI2cSlv->pI2cHw = pHw; //硬件挂接
   pI2cSlv->Id = Id;    
-  pI2cSlv->SlvAdr = SlvAdr; 
+  pI2cSlv->SlvAdr = SlvAdr;     
   pI2cSlv->pCmd = pCmd;  
   pI2cSlv->eState = eI2cSlvIdie;  
 
-  //先强行停止I2c总线
-  LPCS_I2C *pI2cHw = (LPCS_I2C *)pHw;
-  pI2cHw->CONCLR = LPC_I2C_EN | LPC_I2C_SI | LPC_I2C_STA | LPC_I2C_AA;
-  
-  //配置地址等
-  pI2cHw->ADR = SlvAdr << 1;
-  if(pCmd->Flag & I2C_SLVCMD_EN_GC) pI2cHw->ADR |= 0x01;
+  //外1: Step1: SCL、SDA映射到需要的管脚；并配置 SCL、SDA管脚为开漏模式
+  //外2: Step2：设置 PERI_CLKEN.I2Cx为 1，使能 I2Cx模
+  //外3: Step3：向 PERI_RESET.I2Cx依次写入 0、1，复位 ，复位 I2Cx
+ 
+  M0P_I2C_TypeDef *pI2cHw = (M0P_I2C_TypeDef *)pHw;
+  //1. Step4：设置 I2Cx_CR.ens为 1，使能 ，使能I2C
+  pI2cHw->CR_f.ENS = 1;
+  //2. Step5：配置 I2Cx_ADDR为当前地址
+  if(pCmd->Flag & I2C_SLVCMD_GC_FLAG) //广播地址使能
+    pI2cHw->ADDR = 0x01 | (SlvAdr << 1);
+  else pI2cHw->ADDR = (SlvAdr << 1);
 }
 
 //-----------------------------I2c从机启动函数-------------------------
@@ -42,14 +45,11 @@ signed char I2cSlv_ReStart(struct _I2cSlv *pI2cSlv) //设备指针
   enum _eI2cSlvState eState = pI2cSlv->eState;
   //I2c进行过程中禁止访问
   if(eState != eI2cSlvIdie)  return -1;
-  
-  LPCS_I2C *pI2cHw = (LPCS_I2C *)pI2cSlv->pI2cHw;
-  
-  pI2cHw->CONCLR = LPC_I2C_SI | LPC_I2C_STA | LPC_I2C_AA;  //先停止
-  
   pI2cSlv->eState = eI2cSlvRdy;//准备接收数据
-  //启动I2c从机开始工作:
-  pI2cHw->CONSET = LPC_I2C_EN | LPC_I2C_AA;//使能I2c与应答位 
+  
+  M0P_I2C_TypeDef *pI2cHw = (M0P_I2C_TypeDef *)pI2cSlv->pI2cHw;
+  //Step6：设置 I2Cx_CR.aa为 1，使能应答标志。
+  pI2cHw->CR_f.AA = 1;//使能应答位 
   return 0;
 }
 
@@ -57,8 +57,8 @@ signed char I2cSlv_ReStart(struct _I2cSlv *pI2cSlv) //设备指针
 //停止并强制I2c复位
 void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
 {
-  LPCS_I2C *pI2cHw = (LPCS_I2C *)pI2cSlv->pI2cHw;
-  pI2cHw->CONCLR = LPC_I2C_SI | LPC_I2C_STA | LPC_I2C_AA;
+  M0P_I2C_TypeDef *pI2cHw = (M0P_I2C_TypeDef *)pI2cSlv->pI2cHw;
+  pI2cHw->CR_f.AA = 0;//禁止I2c应答
   pI2cSlv->eState = eI2cSlvIdie;
 }
 
@@ -67,7 +67,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
  void I2cSlv_IRQ(struct _I2cSlv *pI2cSlv)
 { 
   struct _I2cSlvCmd *pCmd = pI2cSlv->pCmd;
-  LPCS_I2C *pI2cHw = (LPCS_I2C *)pI2cSlv->pI2cHw;
+  M0P_I2C_TypeDef *pI2cHw = (M0P_I2C_TypeDef *)pI2cSlv->pI2cHw;
   unsigned long StateHw = pI2cHw->STAT;//读硬件状态位
   enum _eI2cSlvState eState = pI2cSlv->eState;//读状态机
   
@@ -78,7 +78,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
   case  0x78://广播地址被接收到,主机仲载丢失，但不影响从机
   case  0x70://广播地址被接收到!
   case  0x68://主机仲载丢失，但不影响从机
-  case  0x60://从机的地址+写命令,从机已应答
+  case  0x60://从机的地址从机已应答
     if(eState == eI2cSlvRdy){   //从机准备好时
       //这里初始化相关变量
       pI2cSlv->Index = 0;
@@ -91,7 +91,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
         eState = eI2SlvCmdRcv;
       else//无命令时直接接收数据
         eState = eI2cSlvRd;
-      pI2cHw->CONSET = LPC_I2C_AA;
+      pI2cHw->CR_f.AA = 1; //继续应答
     }
     else eState = eI2cSlvErr;   //状态机错误
     break;
@@ -100,22 +100,22 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
   case 0x90://从机广播地址应答返回
    Index = pI2cSlv->Index;
    if(eState == eI2SlvCmdRcv){//收命令
-     *(pCmd->pCmd + Index) = pI2cHw->DAT;
+     *(pCmd->pCmd + Index) = pI2cHw->DATA;
      Index++;
      if(Index >= pCmd->CmdSize){
        Index = 0;
        eState = eI2cSlvRd;//预切换到读数据状态
      }
-     pI2cHw->CONSET = LPC_I2C_AA; 
+     pI2cHw->CR_f.AA = 1; //继续应答 
    }
    else if(eState == eI2cSlvRd){//收数据
      if(Index < pCmd->DataSize){
-       *(pCmd->pData + Index) = pI2cHw->DAT;
+       *(pCmd->pData + Index) = pI2cHw->DATA;
        Index++;
-       pI2cHw->CONSET = LPC_I2C_AA; 
+       pI2cHw->CR_f.AA = 1; //继续应答 
      }
      else //超出接收缓冲区丢后面数据
-       pI2cHw->CONCLR = LPC_I2C_AA;  
+       pI2cHw->CR_f.AA = 0; //停止应答  
    }
    else eState = eI2cSlvErr;   //状态机错误
    pI2cSlv->Index = Index;
@@ -127,16 +127,15 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
       if(!pI2cSlv->Index){
         eState = eI2cSlvWr;          //强制在写状态
         pI2cSlv->eState = eState;//回调函数使用
-        
       }
       //else //接收到了数据，表示在接收数据状态
       
       //回调函数处理:准备需发送的数据或接收数据处理
       if(I2cSlv_cbFun(pI2cSlv,pCmd->pData))	
-        pI2cHw->CONCLR = LPC_I2C_AA;//停止I2C处理
+       pI2cHw->CR_f.AA = 0;//停止I2C处理
       else{ //继续接收
         if(eState == eI2cSlvRd) eState = eI2cSlvRdy;//读数据状态处理完成，重新准备接收
-        pI2cHw->CONSET = LPC_I2C_AA;
+        pI2cHw->CR_f.AA = 1; //继续应答
       }
     }
     else
@@ -161,11 +160,11 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
    if(eState == eI2cSlvWr){//发送数据
      Index = pI2cSlv->Index;
      if(Index < pCmd->DataSize){
-       pI2cHw->DAT = *(pCmd->pData + Index);
+       pI2cHw->DATA = *(pCmd->pData + Index);
        Index++;
-       pI2cHw->CONSET = LPC_I2C_AA; //仍置为接收状态
+       pI2cHw->CR_f.AA = 1; //仍置为接收状态,继续应答
      }
-     else pI2cHw->DAT = 0;//超过缓冲区大小了
+     else pI2cHw->DATA = 0;//超过缓冲区大小了
      pI2cSlv->Index = Index; 
      if(StateHw == 0xC0) //发送已完成，强制重新置为准备状态
          eState = eI2cSlvRdy;
@@ -182,17 +181,17 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
     break;
   }
   
-  pI2cHw->CONCLR = LPC_I2C_SI;//清中断
-  
   //若I2C状态出错,则强行结束I2c总线
   if(eState == eI2cSlvErr){
-    pI2cHw->CONCLR = LPC_I2C_AA;
+    pI2cHw->CR_f.AA = 0; //停止应答 
     //重启自动恢复
     eState = eI2cSlvRdy;
-    pI2cHw->CONSET = LPC_I2C_AA; 
+    pI2cHw->CR_f.AA = 1; //开启应答 
   }
-  
   pI2cSlv->eState = eState;
   
-  LPC_BASE_VIC->VectAddr = 0x00;              // 中断处理结束
+  pI2cHw->CR_f.SI = 0;//清中断 (写入 0，I2C进行下一步操作)
 }
+
+
+

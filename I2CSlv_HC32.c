@@ -33,9 +33,22 @@ void I2cSlv_Init(struct _I2cSlv *pI2cSlv,  //未初始化的设备指针
   //1. Step4：设置 I2Cx_CR.ens为 1，使能 ，使能I2C
   pI2cHw->CR_f.ENS = 1;
   //2. Step5：配置 I2Cx_ADDR为当前地址
-  if(pCmd->Flag & I2C_SLVCMD_GC_FLAG) //广播地址使能
+  if(pCmd->Flag & I2C_SLVCMD_EN_GC) //广播地址使能
     pI2cHw->ADDR = 0x01 | (SlvAdr << 1);
   else pI2cHw->ADDR = (SlvAdr << 1);
+}
+
+//---------------------------更新从机地址-----------------------------
+void I2cSlv_UpdateSlvAdr(struct _I2cSlv *pI2cSlv,
+                         unsigned char SlvAdr)     //从机地址,1-127
+{
+  I2cSlv_Reset(pI2cSlv);
+  pI2cSlv->SlvAdr = SlvAdr;
+  M0P_I2C_TypeDef *pI2cHw = (M0P_I2C_TypeDef *)pI2cSlv->pI2cHw;
+  if(pI2cSlv->pCmd->Flag & I2C_SLVCMD_EN_GC) //广播地址使能
+    pI2cHw->ADDR = 0x01 | (SlvAdr << 1);
+  else pI2cHw->ADDR = (SlvAdr << 1); 
+  I2cSlv_ReStart(pI2cSlv);
 }
 
 //-----------------------------I2c从机启动函数-------------------------

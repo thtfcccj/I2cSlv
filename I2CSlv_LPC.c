@@ -35,6 +35,19 @@ void I2cSlv_Init(struct _I2cSlv *pI2cSlv,  //未初始化的设备指针
   if(pCmd->Flag & I2C_SLVCMD_EN_GC) pI2cHw->ADR |= 0x01;
 }
 
+//---------------------------更新从机地址-----------------------------
+void I2cSlv_UpdateSlvAdr(struct _I2cSlv *pI2cSlv,
+                         unsigned char SlvAdr)     //从机地址,1-127
+{
+  I2cSlv_Reset(pI2cSlv);
+  pI2cSlv->SlvAdr = SlvAdr;
+  LPCS_I2C *pI2cHw = (LPCS_I2C *)pI2cSlv->pI2cHw;
+  if(pI2cSlv->pCmd->Flag & I2C_SLVCMD_EN_GC) //广播地址使能
+    pI2cHw->ADR = 0x01 | (SlvAdr << 1);
+  else pI2cHw->ADR = (SlvAdr << 1); 
+  I2cSlv_ReStart(pI2cSlv);
+}
+
 //-----------------------------I2c从机启动函数-------------------------
 //置为从机准备接收数据状态
 signed char I2cSlv_ReStart(struct _I2cSlv *pI2cSlv) //设备指针        

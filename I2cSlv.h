@@ -63,6 +63,10 @@ void I2cSlv_Init(struct _I2cSlv *pI2cSlv,  //未初始化的设备指针
                  unsigned char SlvAdr,     //从机地址,1-127
                  struct _I2cSlvCmd *pCmd);  //挂接的命令字缓冲区
 
+//---------------------------更新从机地址-----------------------------
+void I2cSlv_UpdateSlvAdr(struct _I2cSlv *pI2cSlv,
+                            unsigned char SlvAdr);     //从机地址,1-127
+
 //-----------------------------I2c从机启动函数-------------------------
 //置为从机准备接收数据状态
 signed char I2cSlv_ReStart(struct _I2cSlv *pI2cSlv); //设备指针
@@ -79,13 +83,17 @@ void I2cSlv_IRQ(struct _I2cSlv *pI2cSlv);
 //enum eI2cState_t I2cSlv_eGetSatate(const struct _I2cSlv *pI2cSlv);
 #define I2cSlv_eGetSatate(pI2cSlv) ((pI2cSlv)->eState)
 
-//--------------------------------I2c从机回调函数--------------------------
+/*******************************************************************************
+                            相关回调函数
+*******************************************************************************/
+
+//------------------------------收到数据后的回调函数--------------------------
 //当接收到读命令或接收写命令结束时调用此函数，
 //读命令时(状态机为读)，用户应在此函数中准备需发送的数据
 //写命令时(状态机为写),用户应处理接收到的有效数据
 //返回1时强制停止I2C从机，返回0时内部自动置为从机接收状态
-int I2cSlv_cbFun(const struct _I2cSlv *pI2cSlv,
-                 //主机读取数据时的写缓冲区,大小由主机决定
-                 unsigned char *pData);	
+signed char I2cSlv_cbFun(const struct _I2cSlv *pI2cSlv,
+                         //主机读取数据时的写缓冲区,大小由主机决定
+                         unsigned char *pData);
 
 #endif

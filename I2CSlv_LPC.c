@@ -134,27 +134,36 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
    pI2cSlv->Index = Index;
    break;
   //===================接收数据状态结束标志======================
-  case 0xA0:
+    case 0xA0:{
+    unsigned char CmdSize, DataSize;
     if(eState == eI2cSlvRd){//收数据中止
-      //没有收到数据，但收到命令了，此状态表示为主机写从机数据状态
+      //没有收到数据命令已收完了)，此状态表示刚收完命令
       if(!pI2cSlv->Index){
-        eState = eI2cSlvWr;          //强制在写状态
-        pI2cSlv->eState = eState;//回调函数使用
-        
+        eState = eI2SlvCmdRcv;
+        pI2cSlv->eState = eI2SlvCmdRcv;
       }
-      //else //接收到了数据，表示在接收数据状态
-      
-      //回调函数处理:准备需发送的数据或接收数据处理
-      if(I2cSlv_cbFun(pI2cSlv,pCmd->pData))	
-        pI2cHw->CONCLR = LPC_I2C_AA;//停止I2C处理
-      else{ //继续接收
-        if(eState == eI2cSlvRd) eState = eI2cSlvRdy;//读数据状态处理完成，重新准备接收
-        pI2cHw->CONSET = LPC_I2C_AA;
-      }
+      //接收到了数据，表示在接收数据状态中止
+      CmdSize = pCmd->CmdSize;
+      DataSize = pI2cSlv->Index;
     }
-    else
-      eState = eI2cSlvErr;   //状态机错误
+    else{//接收命令提前结束
+      CmdSize = pI2cSlv->Index;
+      DataSize = 0;
+    }
+    //回调函数处理:准备需发送的数据或接收数据处理
+    signed char Resume = I2cSlv_cbFun(pI2cSlv, CmdSize, DataSize);
+    if(Resume <= 0) {//停止I2C处理
+      pI2cHw->CR_f.AA = 0;
+      eState = eI2cSlvRdy;//准备
+    }
+    else{ //准备回写数据
+      pI2cHw->CONSET = LPC_I2C_AA; //应答
+      pCmd->DataSize = Resume;
+      pI2cSlv->Index = 0;
+      eState = eI2cSlvWr;//准备写数据
+    }
     break;
+  }
   //======================接收到器件地址+读标志,从机为写================
   case  0xB0://地址收到并已应答
   case  0xA8://地址收到并已应答,主机仲载丢失，但不影响从机

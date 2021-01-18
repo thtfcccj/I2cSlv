@@ -156,10 +156,10 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
     signed char Resume = I2cSlv_cbFun(pI2cSlv, CmdSize, DataSize);
     if(Resume <= 0) {//停止I2C处理
       pI2cHw->CR_f.AA = 0;
-      eState = eI2cSlvRdy;//准备
+      eState = eI2cSlvRdy;//重新准备
     }
     else{ //准备回写数据
-      pI2cHw->CR_f.AA = 1; //应答
+      pI2cHw->CR_f.AA = 1; //先应答读地址
       pCmd->DataSize = Resume;
       pI2cSlv->Index = 0;
       eState = eI2cSlvWr;//准备写数据
@@ -199,6 +199,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
        eState = eI2cSlvRdy;    
    }
    else eState = eI2cSlvErr;   //状态机错误
+   break;
   //=====================其它为错误状态================
   //case  0xC8://最后一个数已发出了，但仍收到了应答,状态错误
   //case 0x88://从机应答不返回后，仍收到了数据,状态错误

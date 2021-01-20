@@ -81,7 +81,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
 { 
   struct _I2cSlvCmd *pCmd = pI2cSlv->pCmd;
   M0P_I2C_TypeDef *pI2cHw = (M0P_I2C_TypeDef *)pI2cSlv->pI2cHw;
-  pI2cHw->CR_f.SI = 1;//清零"si"位
+  //pI2cHw->CR_f.SI = 1;//清零"si"位
   unsigned char StateHw = pI2cHw->STAT;//读硬件状态低位
   
   enum _eI2cSlvState eState = pI2cSlv->eState;//读状态机
@@ -111,11 +111,16 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
     break;
   //===================接收到主机写数据,从机读数据======================
   case  0x80://前一次寻址使用自身从地址，已接收数据字节返回 ACK
-  case  0x90://前一次寻址使用广播地址，已接收数据字节返回 ACK
-   //这里按从机定义的最长命令与接收数据长度收(即不检查从机命令与数据长度)  
-   Index = pI2cSlv->Index;
+  case  0x90:{//前一次寻址使用广播地址，已接收数据字节返回 ACK
+   //这里按从机定义的最长命令与接收数据长度收(即不检查从机命令与数据长度) 
+   unsigned char Data = pI2cHw->DATA;//无条件读取
+   if(eState == eI2cSlvRdy){//直接转到收命令
+     Index = 0;
+     eState = eI2SlvCmdRcv;
+   }
+   else Index = pI2cSlv->Index;
    if(eState == eI2SlvCmdRcv){//收命令
-     *(pCmd->pCmd + Index) = pI2cHw->DATA;
+     *(pCmd->pCmd + Index) = Data;
      Index++;
      if(Index >= pCmd->CmdSize){
        Index = 0;
@@ -125,7 +130,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
    }
    else if(eState == eI2cSlvRd){//收数据
      if(Index < pCmd->DataSize){
-       *(pCmd->pData + Index) = pI2cHw->DATA;
+       *(pCmd->pData + Index) = Data;
        Index++;
        pI2cHw->CR_f.AA = 1; //继续应答 
      }
@@ -135,6 +140,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
    else eState = eI2cSlvErr;   //状态机错误
    pI2cSlv->Index = Index;
    break;
+  }
   //===================接收命令或数据状态结束标志======================
   case 0xA0:{//静态寻址时，接收到停止条件(写结束) 或重复起始条件(开始读周期了)
     unsigned char CmdSize, DataSize;
@@ -155,8 +161,8 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
     //回调函数处理:准备需发送的数据或接收数据处理
     signed char Resume = I2cSlv_cbFun(pI2cSlv, CmdSize, DataSize);
     if(Resume <= 0) {//停止I2C处理
-      pI2cHw->CR_f.AA = 0;
-      eState = eI2cSlvRdy;//重新准备
+      eState = eI2cSlvRdy;//重新准备      
+      pI2cHw->CR_f.AA = 1;//应答
     }
     else{ //准备回写数据
       pI2cHw->CR_f.AA = 1; //先应答读地址
@@ -181,25 +187,22 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
     }
   //======================从机向主机写数据过程中收到应答================
   case  0xB8://数据已发出且收到了应答
-  case  0xC0://数据已发出但未收到应答,表示发送最后一个数据了 
-   //这里按从机定义的最长数据长度发(即不检查从机发送数据长度) 
-   if(eState == eI2cSlvWr){//发送数据
-     Index = pI2cSlv->Index;
-     if(Index < pCmd->DataSize){
-       pI2cHw->DATA = *(pCmd->pData + Index);
-       Index++;
-       pI2cHw->CR_f.AA = 1; //仍置为接收状态,继续应答
-     }
-     else{//超过缓冲区大小了
-       pI2cHw->DATA = 0;       
-       pI2cHw->CR_f.AA = 0; //不应答了
-     }
-     pI2cSlv->Index = Index; 
-     if(StateHw == 0xC0) //发送已完成，强制重新置为准备状态
-       eState = eI2cSlvRdy;    
+    Index = pI2cSlv->Index;
+    if(eState == eI2cSlvWr){//发送数据
+      //这里按从机定义的最长数据长度发(即不检查从机发送数据长度) 
+      if(Index < pCmd->DataSize){
+        pI2cHw->DATA = *(pCmd->pData + Index);
+        pI2cSlv->Index++;
+      }
+      else pI2cHw->DATA = 0x55;//还要求发送,但超过缓冲区大小了,发幻码
    }
    else eState = eI2cSlvErr;   //状态机错误
    break;
+  //======================数据已发出但未收到应答,表示发送最后一个数据了=========
+  case  0xC0://数据已发出但未收到应答,表示发送最后一个数据了 
+    eState = eI2cSlvRdy; //重新开始接收
+    pI2cHw->CR_f.AA = 1;//应答 
+    break;
   //=====================其它为错误状态================
   //case  0xC8://最后一个数已发出了，但仍收到了应答,状态错误
   //case 0x88://从机应答不返回后，仍收到了数据,状态错误

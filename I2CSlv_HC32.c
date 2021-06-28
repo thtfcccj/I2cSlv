@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-               I2C从机通用驱动程序-在HC32上的实现
+               I2C从机通用驱动程序-在HC32(默认M0P)上的实现
 经检查，此I2C(已使用到)的STATE码，与LPC32相同,模块硬件结构与基本相同
 ********************************************************************************/
 
@@ -165,6 +165,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
       pI2cHw->CR_f.AA = 1;//应答
     }
     else{ //准备回写数据
+      I2cSlv_cbActStart();//应答开始
       pI2cHw->CR_f.AA = 1; //先应答读地址
       pCmd->DataSize = Resume;
       pI2cSlv->Index = 0;
@@ -194,12 +195,13 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
         pI2cHw->DATA = *(pCmd->pData + Index);
         pI2cSlv->Index++;
       }
-      else pI2cHw->DATA = 0x55;//还要求发送,但超过缓冲区大小了,发幻码
+      else pI2cHw->DATA = 0x55;//还要求发送,但超过缓冲区大小了,发幻数
    }
    else eState = eI2cSlvErr;   //状态机错误
    break;
   //======================数据已发出但未收到应答,表示发送最后一个数据了=========
   case  0xC0://数据已发出但未收到应答,表示发送最后一个数据了 
+    I2cSlv_cbActEnd();//应答正常结束
     eState = eI2cSlvRdy; //重新开始接收
     pI2cHw->CR_f.AA = 1;//应答 
     break;
@@ -214,6 +216,7 @@ void I2cSlv_Reset(struct _I2cSlv *pI2cSlv)
   
   //若I2C状态出错,则强行结束I2c总线
   if(eState == eI2cSlvErr){
+    I2cSlv_cbActEnd();//应答异常结束
     pI2cHw->CR_f.AA = 0; //停止应答 
     //重启自动恢复
     eState = eI2cSlvRdy;

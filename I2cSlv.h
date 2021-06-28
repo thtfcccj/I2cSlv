@@ -6,6 +6,11 @@
 #ifndef __I2C_SLV_H
 #define __I2C_SLV_H
 
+/*******************************************************************************
+                        相关配置
+********************************************************************************/
+
+//#define SUPPORT_I2C_SLV_ACT_NOTIFY    //支持应答通报时定义，主要用于应答指示灯
 
 /*******************************************************************************
                         相关结构
@@ -96,6 +101,16 @@ void I2cSlv_IRQ(struct _I2cSlv *pI2cSlv);
 unsigned char I2cSlv_cbFun(const struct _I2cSlv *pI2cSlv,
                              unsigned char CmdSize,
                              unsigned char DataSize);
+
+//---------------------------------应答通报-------------------------------
+#ifdef SUPPORT_I2C_SLV_ACT_NOTIFY
+  #include "IoCtrl.h"
+  #define I2cSlv_cbActStart()  do{OpenLightC(); }while(0) //起始
+  #define I2cSlv_cbActEnd()    do{CloseLightC();}while(0) //结束
+#else //定义为空
+  #define I2cSlv_cbActStart()  do{}while(0) //起始
+  #define I2cSlv_cbActEnd()    do{}while(0) //结束
+#endif
 
 
 
